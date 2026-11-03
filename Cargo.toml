@@ -1,0 +1,17 @@
+[package]
+name = "pmset"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.74"
+description = "A pmset(1) workalike for Linux and Omarchy"
+license = "MIT"
+
+[dependencies]
+anyhow = "1"
+libc = "0.2"
+serde_json = { version = "1", features = ["preserve_order"] }
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1

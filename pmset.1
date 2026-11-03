@@ -1,0 +1,268 @@
+.TH PMSET 1 "November 2026" "pmset 0.1.0" "User Commands"
+.SH NAME
+pmset \- manipulate power management settings on Linux and Omarchy
+.SH SYNOPSIS
+.nf
+.B pmset
+.RB [ \-a " | " \-b " | " \-c ]
+.RI [ setting " " value ] ...
+.BI "pmset \-g [" option "]"
+.B pmset
+.RB [ displaysleepnow | sleepnow | lock | touch | noidle | boot ]
+.B pmset [\-h | \-\-help]
+.B pmset [\-V | \-\-version]
+.fi
+.SH DESCRIPTION
+.B pmset
+is a Linux/Omarchy workalike for the macOS
+.BR pmset (1)
+command.  It implements the settings and actions that have a clear equivalent
+on Linux, using the kernel, systemd-logind, and the Omarchy shell directly.
+.PP
+Settings are changed immediately.  Changing
+.BR sleep ,
+.BR lidwake ,
+or
+.B womp
+requires root.  Changing
+.B displaysleep
+edits the invoking user's Omarchy configuration and does not require root;
+when run through
+.BR sudo ,
+the user named by
+.B SUDO_USER
+is used.
+.PP
+The
+.BR \-a ,
+.BR \-b ,
+and
+.B \-c
+flags are accepted for compatibility.  Linux settings are system-wide, so all
+three apply to every power source.
+.SH SETTINGS
+Values for
+.B displaysleep
+and
+.B sleep
+are in minutes.  Fractional minutes are accepted and stored with second
+precision.  A value of
+.B 0
+disables the timer.
+.TP
+.BI displaysleep " " N
+Set the display idle timeout in the Omarchy shell configuration
+.RI ( idle.screensaver
+in
+.IR ~/.config/omarchy/shell.json ).
+The lock-screen timeout
+.RI ( idle.lock )
+is left unchanged.
+.B dim
+is accepted as a deprecated alias.
+.TP
+.BI sleep " " N
+Suspend the system after
+.I N
+idle minutes by writing
+.B IdleAction=suspend
+and
+.B IdleActionSec=Nmin
+to
+.IR /etc/systemd/logind.conf.d/99-pmset.conf .
+A value of 0 writes
+.BR IdleAction=ignore .
+.TP
+.BI lidwake " " 0|1
+When set to 1, closing the lid suspends the system
+.RB ( HandleLidSwitch=suspend
+and
+.BR HandleLidSwitchExternalPower=suspend ).
+When set to 0, lid close is ignored.
+.TP
+.BI womp " " 0|1
+Enable or disable Wake-on-LAN magic-packet wakeups on every interface that
+supports them, using the kernel
+.B SIOCETHTOOL
+ioctl.
+.TP
+.BI disksleep " " N
+Not supported.  ATA and NVMe devices do not share a reliable spindown interface.
+.TP
+.BI hibernatemode " " N
+Not supported.  Use
+.B omarchy hibernation setup
+instead.
+.SH GETTING
+.TP
+.B pmset \-g
+.TQ
+.B pmset \-g live
+Show the settings currently in use.
+.TP
+.B pmset \-g custom
+Show the settings with a note that they are system-wide.
+.TP
+.B pmset \-g cap
+Show detected capabilities: battery, AC adapter, backlight, lid switch,
+suspend, hibernate, and Wake-on-LAN.
+.TP
+.B pmset \-g batt
+Show the current power source and battery state from
+.IR /sys/class/power_supply .
+.TP
+.B pmset \-g ps
+Show every battery and AC/USB power supply.
+.TP
+.B pmset \-g ac
+.TQ
+.B pmset \-g adapter
+Show AC and USB supplies.
+.TP
+.B pmset \-g assertions
+Show systemd inhibitors that block idle or sleep, using
+.BR "systemd-inhibit --list" .
+.TP
+.B pmset \-g everything
+Show settings, capabilities, battery state, and assertions.
+.SH ACTIONS
+.TP
+.B displaysleepnow
+Turn the display off immediately with Hyprland DPMS.  The session and
+compositor keep running.  Restore the display with
+.B omarchy system wake
+or
+.BR "omarchy brightness display on" .
+.TP
+.B sleepnow
+Suspend the system with
+.B loginctl suspend
+or, if loginctl is unavailable,
+.BR "systemctl suspend" .
+.TP
+.B lock
+Lock the session with
+.B omarchy system lock
+or, if Omarchy is unavailable,
+.BR "loginctl lock-session" .
+.TP
+.B touch
+Re-read settings.  This is a no-op because settings are read from the live
+system on every invocation.
+.TP
+.B noidle
+Hold a
+.B "systemd-inhibit --what=idle:sleep"
+block inhibitor until interrupted.  On macOS this command is deprecated in
+favor of
+.BR caffeinate (8);
+systemd inhibitors fill the same role on Linux.
+.TP
+.B boot
+No-op.  Linux has no equivalent of the Darwin boot-complete notification.
+.SH EXAMPLES
+Set the display timeout to 5 minutes and the idle suspend timeout to 30
+minutes:
+.PP
+.nf
+.RS
+pmset \-a displaysleep 5 sleep 30
+.RE
+.fi
+.PP
+Turn the display off immediately:
+.PP
+.nf
+.RS
+pmset displaysleepnow
+.RE
+.fi
+.PP
+Show battery state:
+.PP
+.nf
+.RS
+pmset \-g batt
+.RE
+.fi
+.SH NOTES
+.B pmset sleep
+configures logind's idle action.  logind only acts on it when the session
+publishes an idle hint.  Omarchy's Hyprland/uwsm session does not currently set
+one, so the idle timer may not fire there.  Use
+.B pmset sleepnow
+for an immediate suspend, or a compositor idle daemon such as
+.BR hypridle (1)
+if an automatic idle suspend is required.
+.SH LIMITATIONS
+The following macOS settings have no reliable Linux equivalent and are
+rejected:
+.BR disksleep ,
+.BR spindown ,
+.BR hibernatemode ,
+.BR hibernatefile ,
+.BR autorestart ,
+.BR halfdim ,
+.BR lessbright ,
+.BR acwake ,
+.BR ring ,
+.BR sms ,
+.BR ttyskeepawake ,
+.BR destroyfvkeyonstandby ,
+.BR autopoweroff ,
+and
+.BR autopoweroffdelay .
+.PP
+Scheduled and repeating power events
+.RB ( schedule ,
+.BR repeat ,
+.B relative )
+are not implemented.  Use systemd timers or
+.BR rtcwake (8).
+.PP
+UPS emergency thresholds
+.RB ( \-u ,
+.BR haltlevel ,
+.BR haltafter ,
+.B haltremain )
+are not implemented; use UPower or NUT.
+.PP
+The
+.BR \-g
+options
+.BR sched ,
+.BR ups ,
+.BR pslog ,
+.BR rawlog ,
+.BR therm ,
+.BR thermlog ,
+.BR sysload ,
+.BR sysloadlog ,
+.BR uuid ,
+.BR uuidlog ,
+.BR history ,
+.BR historydetailed ,
+.BR powerstate ,
+.BR powerstatelog ,
+.BR stats ,
+and
+.B systemstate
+are not supported.
+.SH FILES
+.TP
+.I ~/.config/omarchy/shell.json
+Omarchy shell configuration.  The
+.B idle.screensaver
+value is the display idle timeout.
+.TP
+.I /etc/systemd/logind.conf.d/99-pmset.conf
+Generated by
+.BR pmset .
+Holds idle-suspend and lid-switch settings.
+.SH SEE ALSO
+.BR loginctl (1),
+.BR logind.conf (5),
+.BR systemd-inhibit (1),
+.BR rtcwake (8),
+.BR brightnessctl (1),
+.BR hyprctl (1)
