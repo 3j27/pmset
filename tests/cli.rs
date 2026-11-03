@@ -102,3 +102,78 @@ fn displaysleepnow_uses_hyprctl() {
 
     let _ = fs::remove_dir_all(home);
 }
+
+#[test]
+fn displaysleepnow_installs_key_wake_guard_before_blanking() {
+    let home = temp_dir("hyprctl-guard");
+    let bin = home.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    let log = home.join("log");
+    let eval_log = home.join("eval");
+    let script = format!(
+        r#"#!/bin/sh
+echo "$1" >> '{}'
+if [ "$1" = "eval" ]; then
+  echo "$2" > '{}'
+fi
+exit 0
+"#,
+        log.display(),
+        eval_log.display()
+    );
+    let hyprctl = bin.join("hyprctl");
+    fs::write(&hyprctl, script).unwrap();
+    fs::set_permissions(&hyprctl, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let output = Command::new(binary())
+        .arg("displaysleepnow")
+        .env("HOME", &home)
+        .env_remove("SUDO_USER")
+        .env("PATH", &bin)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+
+    let calls = fs::read_to_string(&log).unwrap();
+    assert_eq!(calls.lines().collect::<Vec<_>>(), vec!["eval", "dispatch"]);
+    let guard = fs::read_to_string(&eval_log).unwrap();
+    assert!(guard.contains("input.keyboard.key"));
+    assert!(guard.contains("key_press_enables_dpms = false"));
+    assert!(guard.contains("misc = { key_press_enables_dpms = g.original }"));
+
+    let _ = fs::remove_dir_all(home);
+}
+
+#[test]
+fn displaysleepnow_still_blanks_if_the_guard_fails() {
+    let home = temp_dir("hyprctl-no-guard");
+    let bin = home.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    let log = home.join("log");
+    let script = format!(
+        r#"#!/bin/sh
+if [ "$1" = "eval" ]; then
+  exit 1
+fi
+echo "$1" >> '{}'
+exit 0
+"#,
+        log.display()
+    );
+    let hyprctl = bin.join("hyprctl");
+    fs::write(&hyprctl, script).unwrap();
+    fs::set_permissions(&hyprctl, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let output = Command::new(binary())
+        .arg("displaysleepnow")
+        .env("HOME", &home)
+        .env_remove("SUDO_USER")
+        .env("PATH", &bin)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("key-wake guard"));
+    assert_eq!(fs::read_to_string(&log).unwrap().trim(), "dispatch");
+
+    let _ = fs::remove_dir_all(home);
+}

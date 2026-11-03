@@ -128,8 +128,11 @@ Show settings, capabilities, battery state, and assertions.
 .SH ACTIONS
 .TP
 .B displaysleepnow
-Turn the display off immediately with Hyprland DPMS.  The session and
-compositor keep running.  Restore the display with
+Turn the display off with Hyprland DPMS.  The session and compositor keep
+running.  A short-lived Hyprland guard disables key-press wakeups until the
+Enter key that started the command is released, then restores the original
+setting; this is event-driven, so blanking is not delayed.  Restore the display
+with
 .B omarchy system wake
 or
 .BR "omarchy brightness display on" .

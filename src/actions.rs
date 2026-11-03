@@ -5,6 +5,48 @@ use anyhow::{bail, Context, Result};
 
 use crate::Action;
 
+/// Hyprland wakes a DPMS-blanked display on a key press. The key that launched
+/// this command can still be in the compositor's input queue, so install a
+/// short-lived guard that suppresses key-press wakeups until that key is
+/// released. The guard is event-driven: it does not delay blanking.
+const KEY_WAKE_GUARD: &str = r#"
+local g = _G.__pmset_dpms_guard
+if g == nil then
+  g = {
+    original = hl.get_config("misc.key_press_enables_dpms"),
+    generation = 0,
+    sub = nil,
+    timer = nil,
+    done = false
+  }
+  _G.__pmset_dpms_guard = g
+else
+  if g.sub then g.sub:remove(); g.sub = nil end
+  if g.timer then g.timer:set_enabled(false); g.timer = nil end
+  g.done = false
+end
+g.generation = g.generation + 1
+local my_gen = g.generation
+
+local function cleanup()
+  if g.done or g.generation ~= my_gen then return end
+  g.done = true
+  if g.sub then g.sub:remove(); g.sub = nil end
+  if g.timer then g.timer:set_enabled(false); g.timer = nil end
+  hl.config({ misc = { key_press_enables_dpms = g.original } })
+  _G.__pmset_dpms_guard = nil
+end
+
+g.sub = hl.on("input.keyboard.key", function(keycode, time, state)
+  if state == 0 then
+    hl.timer(cleanup, { timeout = 1, type = "oneshot" })
+  end
+end)
+g.timer = hl.timer(cleanup, { timeout = 1000, type = "oneshot" })
+hl.config({ misc = { key_press_enables_dpms = false } })
+return "ok"
+"#;
+
 pub fn run(action: Action) -> Result<()> {
     match action {
         Action::DisplaySleepNow => display_sleep_now(),
@@ -24,6 +66,27 @@ pub fn run(action: Action) -> Result<()> {
 }
 
 fn display_sleep_now() -> Result<()> {
+    install_key_wake_guard();
+    dispatch_dpms_off()
+}
+
+fn install_key_wake_guard() {
+    match Command::new("hyprctl")
+        .args(["eval", KEY_WAKE_GUARD])
+        .output()
+    {
+        Ok(output) if output.status.success() => {}
+        Ok(_) => eprintln!(
+            "pmset: warning: could not install the Hyprland key-wake guard; the display may wake immediately"
+        ),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+        Err(err) => eprintln!(
+            "pmset: warning: could not install the Hyprland key-wake guard ({err}); the display may wake immediately"
+        ),
+    }
+}
+
+fn dispatch_dpms_off() -> Result<()> {
     // Hyprland 0.5x accepts Lua dispatch expressions, while older releases use
     // the keyword form. Try both and keep the last useful error.
     let attempts: [&[&str]; 2] = [

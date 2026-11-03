@@ -118,6 +118,17 @@ works on desktops that do publish idle hints.
 1. `hyprctl dispatch 'hl.dsp.dpms({ action = "disable" })'` (Hyprland 0.5x+)
 2. `hyprctl dispatch dpms off` (older Hyprland)
 
+Hyprland wakes a DPMS-blanked display on a key press
+(`misc:key_press_enables_dpms`). The Enter key that starts `pmset` can still be
+in the compositor's input queue, which would turn the display straight back on.
+
+`displaysleepnow` installs a short-lived Hyprland Lua guard before blanking:
+it disables key-press wakeups, waits for the launching key to be released,
+then restores the original setting. The guard is event-driven and clears
+itself after one second if no key event arrives, so there is no delay before
+the display turns off. If the guard cannot be installed, `pmset` still blanks
+the display normally and prints a warning.
+
 This is the equivalent of Omarchy's `omarchy brightness display off`: the panel
 and compositor outputs turn off, and Omarchy's idle/wake handling can turn them
 back on. If you turn the display off manually, restore it with
